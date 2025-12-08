@@ -6,13 +6,11 @@ const handlebars = require("handlebars");
 const bwipjs = require("bwip-js");
 require("dotenv").config();
 
-// Google Sheets Auth
 const auth = new google.auth.GoogleAuth({
   keyFile: "credentials.json",
   scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
 });
 
-// Email Transporter (Gmail SMTP)
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
@@ -23,7 +21,6 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Validate Email Config
 async function verifyEmailConfig() {
   try {
     await transporter.verify();
@@ -35,53 +32,77 @@ async function verifyEmailConfig() {
   }
 }
 
-// Load pass template
 const template = handlebars.compile(
   fs.readFileSync(path.join(__dirname, "pass.html"), "utf8")
 );
 
-// Barcode Generator
 async function generateBarcode(email) {
-  const text = `ELAN_26_${email}_GUEST`;
+  const text = `${email}`.toUpperCase();
   return new Promise((resolve, reject) => {
     bwipjs.toBuffer(
       {
         bcid: "code128",
         text,
-        scale: 2,
-        height: 14,
+        scale: 4,
+        height: 20,
         includetext: true,
         textxalign: "center",
+        backgroundcolor: "ffffff",
       },
       (err, png) => (err ? reject(err) : resolve(png))
     );
   });
 }
 
-// Email Sender
 async function sendPass(participant) {
   try {
     const barcodeBuffer = await generateBarcode(participant.email);
 
+    const formattedName =
+      participant.name && participant.name.trim().length > 0
+        ? participant.name
+            .trim()
+            .split(" ")[0]
+            .toLowerCase()
+            .replace(/^./, (c) => c.toUpperCase())
+        : "Guest";
+
+    const headerPath = path.join(__dirname, "pass_header_3.png");
+    const hasHeader = fs.existsSync(headerPath);
+
     const htmlContent = template({
-      Name: participant.name,
-      College: participant.college,
-      City: participant.city,
-      barcode: "cid:barcodeImage",
+      Name: formattedName,
+      Email: participant.email,
+      barcodeImage: "cid:barcodeImage",
+      headerImage: hasHeader ? "cid:headerImage" : null,
     });
+
+    const attachments = [
+      {
+        filename: "barcode.png",
+        content: barcodeBuffer,
+        cid: "barcodeImage",
+      },
+      {
+        filename: "elan-nvision-2026-barcode.png",
+        content: barcodeBuffer,
+      },
+    ];
+
+    if (hasHeader) {
+      attachments.push({
+        filename: "pass_header_3.png",
+        path: headerPath,
+        cid: "headerImage",
+      });
+    }
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: participant.email,
-      subject: "Registration confirmed | Elan & nVision Fest Pass",
+      subject: `${formattedName}, your Elan & nVision 2026 Pass is ready!`,
       html: htmlContent,
-      attachments: [
-        {
-          filename: "barcode.png",
-          content: barcodeBuffer,
-          cid: "barcodeImage",
-        },
-      ],
+      attachments,
     });
 
     console.log(`SENT: ${participant.email}`);
@@ -90,7 +111,6 @@ async function sendPass(participant) {
   }
 }
 
-// Polling + Sheet Logic
 let lastProcessedRow = 0;
 
 async function initializeLastProcessedRow() {
@@ -107,6 +127,7 @@ async function initializeLastProcessedRow() {
 
 async function checkNewRegistrations() {
   const sheets = google.sheets({ version: "v4", auth });
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
     range: "A2:H",
@@ -117,25 +138,27 @@ async function checkNewRegistrations() {
 
   for (let i = lastProcessedRow; i < rows.length; i++) {
     const row = rows[i];
+
     const participant = {
+      timestamp: row[0],
       name: row[1],
-      phone: row[2],
-      email: row[3],
+      email: row[2],
+      phone: row[3],
       college: row[4],
+      age: row[5],
       city: row[6],
     };
 
     if (participant.email) {
-      console.log(`NEW: ${participant.name} - ${participant.email}`);
+      console.log(`NEW: ${participant.name} | ${participant.email}`);
       await sendPass(participant);
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
     lastProcessedRow = i + 1;
   }
 }
 
-// Main Runner
 async function main() {
   console.log("Starting ELAN Pass Automation...");
 

@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
     <title>Your Elan & nVision 2026 pass</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,7 +17,7 @@
     style="
       font-family: 'JetBrains Mono', monospace;
       font-weight: 300;
-      background: #0a0202;
+      background: #ffffff;
       margin: 0;
       padding: 20px 0;
       min-height: 100vh;
@@ -33,7 +34,7 @@
       "
     >
       <img
-        src="../assets/pass_header_3.png"
+        src="{{headerImage}}"
         alt="fest pass header"
         style="width: 100%; border-radius: 12px 12px 0 0"
       />
@@ -46,7 +47,7 @@
           letter-spacing: 0.5px;
         "
       >
-        Dear name,
+        Dear {{Name}},
       </div>
       <div
         style="
@@ -114,7 +115,7 @@
             "
             >Name:</strong
           >
-          <span style="color: #e6e6e6; font-weight: 400">[Your Name]</span>
+          <span style="color: #e6e6e6; font-weight: 400">{{Name}}</span>
           <br />
           <strong
             style="
@@ -126,12 +127,12 @@
             "
             >Email:</strong
           >
-          <span style="color: #e6e6e6; font-weight: 400">[Your Email]</span>
+          <span style="color: #e6e6e6; font-weight: 400">{{Email}}</span>
         </div>
         <br />
         <div>
           <img
-            src="../assets/barcode-code.png"
+            src="{{barcodeImage}}"
             alt="barcode"
             style="
               display: block;

@@ -1,8 +1,10 @@
 FROM node:18-alpine
 
-WORKDIR /usr/src/app
+WORKDIR /app
 COPY package*.json ./
-RUN npm install --production
+RUN npm install --only=production
 COPY . .
 
-CMD ["node", "index.js"]
+ENV NODE_ENV=production
+
+CMD ["npm", "start"]

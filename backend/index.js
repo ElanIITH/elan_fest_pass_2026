@@ -8,7 +8,7 @@ require("dotenv").config();
 
 const auth = new google.auth.GoogleAuth({
   keyFile: "credentials.json",
-  scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
 const transporter = nodemailer.createTransport({
@@ -54,7 +54,24 @@ async function generateBarcode(email) {
   });
 }
 
-async function sendPass(participant) {
+async function markEmailAsSent(rowIndex) {
+  try {
+    const sheets = google.sheets({ version: "v4", auth });
+    const rowNumber = rowIndex + 2;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.FORM_SHEET_ID,
+      range: `I${rowNumber}`,
+      valueInputOption: "RAW",
+      resource: {
+        values: [[new Date().toISOString()]],
+      },
+    });
+  } catch (err) {
+    console.error(`ERROR marking row ${rowIndex} as sent:`, err.message);
+  }
+}
+
+async function sendPass(participant, rowIndex) {
   try {
     const barcodeBuffer = await generateBarcode(participant.email);
 
@@ -67,7 +84,7 @@ async function sendPass(participant) {
             .replace(/^./, (c) => c.toUpperCase())
         : "Guest";
 
-    const headerPath = path.join(__dirname, "pass_header_3.png");
+    const headerPath = path.join(__dirname, "pass_header.jpg");
     const hasHeader = fs.existsSync(headerPath);
 
     const htmlContent = template({
@@ -106,6 +123,7 @@ async function sendPass(participant) {
     });
 
     console.log(`SENT: ${participant.email}`);
+    await markEmailAsSent(rowIndex);
   } catch (err) {
     console.error(`ERROR sending ${participant.email}:`, err.message);
   }
@@ -117,12 +135,12 @@ async function initializeLastProcessedRow() {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:H",
+    range: "A2:I",
   });
 
   const rows = res.data.values || [];
-  lastProcessedRow = rows.length;
-  console.log(`Startup: Skipping ${lastProcessedRow} existing rows`);
+  lastProcessedRow = 0;
+  console.log(`Startup: Checking all ${rows.length} rows for unsent emails`);
 }
 
 async function checkNewRegistrations() {
@@ -130,7 +148,7 @@ async function checkNewRegistrations() {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:H",
+    range: "A2:I",
   });
 
   const rows = res.data.values || [];
@@ -147,12 +165,15 @@ async function checkNewRegistrations() {
       college: row[4],
       age: row[5],
       city: row[6],
+      emailSent: row[8],
     };
 
-    if (participant.email) {
+    if (participant.email && !participant.emailSent) {
       console.log(`NEW: ${participant.name} | ${participant.email}`);
-      await sendPass(participant);
+      await sendPass(participant, i);
       await new Promise((resolve) => setTimeout(resolve, 1500));
+    } else if (participant.email && participant.emailSent) {
+      console.log(`SKIP: ${participant.email} (already sent)`);
     }
 
     lastProcessedRow = i + 1;

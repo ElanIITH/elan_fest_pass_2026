@@ -71,6 +71,25 @@ async function markEmailAsSent(rowIndex) {
   }
 }
 
+async function addToSecSheet(participant) {
+  try {
+    const sheets = google.sheets({ version: "v4", auth });
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.FORM_SHEET_ID_SEC,
+      range: "A2:B",
+      valueInputOption: "RAW",
+      resource: {
+        values: [[participant.name, participant.email]],
+      },
+    });
+    console.log(
+      `ADDED to security sheet: ${participant.name} | ${participant.email}`
+    );
+  } catch (err) {
+    console.error(`ERROR adding to security sheet:`, err.message);
+  }
+}
+
 async function sendPass(participant, rowIndex) {
   try {
     const barcodeBuffer = await generateBarcode(participant.email);
@@ -108,7 +127,7 @@ async function sendPass(participant, rowIndex) {
 
     if (hasHeader) {
       attachments.push({
-        filename: "pass_header_3.png",
+        filename: "pass_header.jpg",
         path: headerPath,
         cid: "headerImage",
       });
@@ -171,6 +190,7 @@ async function checkNewRegistrations() {
     if (participant.email && !participant.emailSent) {
       console.log(`NEW: ${participant.name} | ${participant.email}`);
       await sendPass(participant, i);
+      await addToSecSheet(participant);
       await new Promise((resolve) => setTimeout(resolve, 1500));
     } else if (participant.email && participant.emailSent) {
       console.log(`SKIP: ${participant.email} (already sent)`);

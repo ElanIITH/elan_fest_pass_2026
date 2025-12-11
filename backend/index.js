@@ -76,10 +76,10 @@ async function addToSecSheet(participant) {
     const sheets = google.sheets({ version: "v4", auth });
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.FORM_SHEET_ID_SEC,
-      range: "A2:B",
+      range: "A2:C",
       valueInputOption: "RAW",
       resource: {
-        values: [[participant.name, participant.email]],
+        values: [[participant.name, participant.email, participant.phone]],
       },
     });
     console.log(

@@ -136,7 +136,7 @@ async function sendPass(participant, rowIndex) {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: participant.email,
-      subject: `${formattedName}, your Elan & nVision 2026 Pass is ready!`,
+      subject: `${formattedName}, your Elan & nVision 2026 Fest Pass is ready!`,
       html: htmlContent,
       attachments,
     });

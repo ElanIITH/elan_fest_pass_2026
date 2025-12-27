@@ -136,7 +136,7 @@ async function sendPass(participant, rowIndex) {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: participant.email,
-      subject: `${formattedName}, your Elan & nVision 2026 Fest Pass is ready!`,
+      subject: `${formattedName}, your Elan & nVision 2026 Pass is ready!`,
       html: htmlContent,
       attachments,
     });
@@ -154,7 +154,7 @@ async function initializeLastProcessedRow() {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:I",
+    range: "A2:T",
   });
 
   const rows = res.data.values || [];

@@ -60,7 +60,7 @@ async function markEmailAsSent(rowIndex) {
     const rowNumber = rowIndex + 2;
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.FORM_SHEET_ID,
-      range: `I${rowNumber}`,
+      range: `T${rowNumber}`,
       valueInputOption: "RAW",
       resource: {
         values: [[new Date().toISOString()]],
@@ -136,7 +136,7 @@ async function sendPass(participant, rowIndex) {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: participant.email,
-      subject: `${formattedName}, your Elan & nVision 2026 Fest Pass is ready!`,
+      subject: `${formattedName}, your Elan & nVision 2026 Pass is ready!`,
       html: htmlContent,
       attachments,
     });
@@ -154,7 +154,7 @@ async function initializeLastProcessedRow() {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:I",
+    range: "A2:T",
   });
 
   const rows = res.data.values || [];
@@ -167,7 +167,7 @@ async function checkNewRegistrations() {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:I",
+    range: "A2:T",
   });
 
   const rows = res.data.values || [];
@@ -177,14 +177,10 @@ async function checkNewRegistrations() {
     const row = rows[i];
 
     const participant = {
-      timestamp: row[0],
-      name: row[1],
-      email: row[2],
-      phone: row[3],
-      college: row[4],
-      age: row[5],
-      city: row[6],
-      emailSent: row[8],
+      name: row[12],
+      email: row[13],
+      phone: row[14],
+      emailSent: row[19],
     };
 
     if (participant.email && !participant.emailSent) {

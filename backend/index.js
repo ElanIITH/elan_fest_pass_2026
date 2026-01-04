@@ -6,6 +6,8 @@ const handlebars = require("handlebars");
 const bwipjs = require("bwip-js");
 require("dotenv").config();
 
+let isProcessing = false;
+
 const auth = new google.auth.GoogleAuth({
   keyFile: "credentials.json",
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -60,7 +62,7 @@ async function markEmailAsSent(rowIndex) {
     const rowNumber = rowIndex + 2;
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.FORM_SHEET_ID,
-      range: `T${rowNumber}`,
+      range: `I${rowNumber}`,
       valueInputOption: "RAW",
       resource: {
         values: [[new Date().toISOString()]],
@@ -154,7 +156,7 @@ async function initializeLastProcessedRow() {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:T",
+    range: "A2:I",
   });
 
   const rows = res.data.values || [];
@@ -163,36 +165,47 @@ async function initializeLastProcessedRow() {
 }
 
 async function checkNewRegistrations() {
-  const sheets = google.sheets({ version: "v4", auth });
+  if (isProcessing) {
+    console.log("SKIP: Previous cycle still running");
+    return;
+  }
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:T",
-  });
+  isProcessing = true;
 
-  const rows = res.data.values || [];
-  if (!rows.length) return;
+  try {
+    const sheets = google.sheets({ version: "v4", auth });
 
-  for (let i = lastProcessedRow; i < rows.length; i++) {
-    const row = rows[i];
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.FORM_SHEET_ID,
+      range: "A2:I",
+    });
 
-    const participant = {
-      name: row[12],
-      email: row[13],
-      phone: row[14],
-      emailSent: row[19],
-    };
+    const rows = res.data.values || [];
+    if (!rows.length) return;
 
-    if (participant.email && !participant.emailSent) {
-      console.log(`NEW: ${participant.name} | ${participant.email}`);
-      await sendPass(participant, i);
-      await addToSecSheet(participant);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    } else if (participant.email && participant.emailSent) {
-      console.log(`SKIP: ${participant.email} (already sent)`);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+
+      const participant = {
+        name: row[1],
+        email: row[2],
+        phone: row[3],
+        emailSent: row[8],
+      };
+
+      if (participant.email && !participant.emailSent) {
+        console.log(`NEW: ${participant.name} | ${participant.email}`);
+        await sendPass(participant, i);
+        await addToSecSheet(participant);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      } else if (participant.email && participant.emailSent) {
+        console.log(`SKIP: ${participant.email} (already sent)`);
+      }
     }
-
-    lastProcessedRow = i + 1;
+  } catch (err) {
+    console.error("ERROR in checkNewRegistrations:", err.message);
+  } finally {
+    isProcessing = false;
   }
 }
 

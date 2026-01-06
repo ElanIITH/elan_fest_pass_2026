@@ -177,13 +177,13 @@ async function checkNewRegistrations() {
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.FORM_SHEET_ID,
-      range: "A2:I",
+      range: "A2:J",
     });
 
     const rows = res.data.values || [];
     if (!rows.length) return;
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = rows.length - 1; i >= 0; i--) {
       const row = rows[i];
 
       const participant = {
@@ -200,6 +200,7 @@ async function checkNewRegistrations() {
         await new Promise((resolve) => setTimeout(resolve, 1500));
       } else if (participant.email && participant.emailSent) {
         console.log(`SKIP: ${participant.email} (already sent)`);
+        break;
       }
     }
   } catch (err) {

@@ -62,7 +62,7 @@ async function markEmailAsSent(rowIndex) {
     const rowNumber = rowIndex + 2;
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.FORM_SHEET_ID,
-      range: `I${rowNumber}`,
+      range: `J${rowNumber}`,
       valueInputOption: "RAW",
       resource: {
         values: [[new Date().toISOString()]],

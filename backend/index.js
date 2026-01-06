@@ -188,9 +188,9 @@ async function checkNewRegistrations() {
 
       const participant = {
         name: row[1],
-        email: row[2],
+        email: row[8],
         phone: row[3],
-        emailSent: row[8],
+        emailSent: row[9],
       };
 
       if (participant.email && !participant.emailSent) {

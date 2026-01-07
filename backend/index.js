@@ -150,19 +150,19 @@ async function sendPass(participant, rowIndex) {
   }
 }
 
-let lastProcessedRow = 0;
+// let lastProcessedRow = 0;
 
-async function initializeLastProcessedRow() {
-  const sheets = google.sheets({ version: "v4", auth });
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.FORM_SHEET_ID,
-    range: "A2:I",
-  });
+// async function initializeLastProcessedRow() {
+//   const sheets = google.sheets({ version: "v4", auth });
+//   const res = await sheets.spreadsheets.values.get({
+//     spreadsheetId: process.env.FORM_SHEET_ID,
+//     range: "A2:I",
+//   });
 
-  const rows = res.data.values || [];
-  lastProcessedRow = 0;
-  console.log(`Startup: Checking all ${rows.length} rows for unsent emails`);
-}
+//   const rows = res.data.values || [];
+//   lastProcessedRow = 0;
+//   console.log(`Startup: Checking all ${rows.length} rows for unsent emails`);
+// }
 
 async function checkNewRegistrations() {
   if (isProcessing) {
@@ -215,7 +215,7 @@ async function main() {
 
   if (!(await verifyEmailConfig())) return;
 
-  await initializeLastProcessedRow();
+  // await initializeLastProcessedRow();
 
   setInterval(checkNewRegistrations, 60000);
 }

@@ -299,8 +299,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: process.env.EMAIL_2,
-    pass: process.env.EMAIL_2_PWD,
+    user: process.env.EMAIL_3,
+    pass: process.env.EMAIL_3_PWD,
   },
   pool: true,
   maxConnections: 1,

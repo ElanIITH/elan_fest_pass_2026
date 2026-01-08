@@ -150,31 +150,59 @@ async function sendPass(participant, rowIndex) {
   }
 }
 
-// let lastProcessedRow = 0;
+// async function checkNewRegistrations() {
+//   if (isProcessing) {
+//     console.log("SKIP: Previous cycle still running");
+//     return;
+//   }
 
-// async function initializeLastProcessedRow() {
-//   const sheets = google.sheets({ version: "v4", auth });
-//   const res = await sheets.spreadsheets.values.get({
-//     spreadsheetId: process.env.FORM_SHEET_ID,
-//     range: "A2:I",
-//   });
+//   isProcessing = true;
 
-//   const rows = res.data.values || [];
-//   lastProcessedRow = 0;
-//   console.log(`Startup: Checking all ${rows.length} rows for unsent emails`);
+//   try {
+//     const sheets = google.sheets({ version: "v4", auth });
+
+//     const res = await sheets.spreadsheets.values.get({
+//       spreadsheetId: process.env.FORM_SHEET_ID,
+//       range: "A2:J",
+//     });
+
+//     const rows = res.data.values || [];
+//     if (!rows.length) return;
+
+//     for (let i = rows.length - 1; i >= 0; i--) {
+//       const row = rows[i];
+
+//       const participant = {
+//         name: row[1],
+//         email: row[8],
+//         phone: row[3],
+//         emailSent: row[9],
+//       };
+
+//       if (participant.email && !participant.emailSent) {
+//         console.log(`NEW: ${participant.name} | ${participant.email}`);
+//         await sendPass(participant, i);
+//         await addToSecSheet(participant);
+//         await new Promise((resolve) => setTimeout(resolve, 1500));
+//       } else if (participant.email && participant.emailSent) {
+//         console.log(`SKIP: ${participant.email} (already sent)`);
+//         break;
+//       }
+//     }
+//   } catch (err) {
+//     console.error("ERROR in checkNewRegistrations:", err.message);
+//   } finally {
+//     isProcessing = false;
+//   }
 // }
 
 async function checkNewRegistrations() {
-  if (isProcessing) {
-    console.log("SKIP: Previous cycle still running");
-    return;
-  }
-
+  if (isProcessing) return;
   isProcessing = true;
 
-  try {
-    const sheets = google.sheets({ version: "v4", auth });
+  const sheets = google.sheets({ version: "v4", auth });
 
+  try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.FORM_SHEET_ID,
       range: "A2:J",
@@ -183,25 +211,62 @@ async function checkNewRegistrations() {
     const rows = res.data.values || [];
     if (!rows.length) return;
 
-    for (let i = rows.length - 1; i >= 0; i--) {
-      const row = rows[i];
+    // build tasks for unsent rows
+    const tasks = rows
+      .map((row, i) => ({ row, i }))
+      .filter(({ row }) => row[8] && !row[9]);
 
-      const participant = {
-        name: row[1],
-        email: row[8],
-        phone: row[3],
-        emailSent: row[9],
-      };
+    // tune this number if needed (10–30 is usually fine)
+    const CONCURRENCY = 20;
 
-      if (participant.email && !participant.emailSent) {
-        console.log(`NEW: ${participant.name} | ${participant.email}`);
-        await sendPass(participant, i);
-        await addToSecSheet(participant);
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-      } else if (participant.email && participant.emailSent) {
-        console.log(`SKIP: ${participant.email} (already sent)`);
-        break;
-      }
+    for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+      const chunk = tasks.slice(i, i + CONCURRENCY);
+
+      await Promise.all(
+        chunk.map(async ({ row, i }) => {
+          const participant = {
+            name: row[1],
+            email: row[8],
+            phone: row[3],
+            emailSent: row[9],
+          };
+
+          const sheetRow = i + 2;
+
+          try {
+            // lock
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: process.env.FORM_SHEET_ID,
+              range: `J${sheetRow}`,
+              valueInputOption: "RAW",
+              requestBody: { values: [["PROCESSING"]] },
+            });
+
+            await sendPass(participant, i);
+            await addToSecSheet(participant);
+
+            // mark sent
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: process.env.FORM_SHEET_ID,
+              range: `J${sheetRow}`,
+              valueInputOption: "RAW",
+              requestBody: { values: [[new Date().toISOString()]] },
+            });
+
+            console.log(`SENT: ${participant.email}`);
+          } catch (err) {
+            // unlock on failure
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: process.env.FORM_SHEET_ID,
+              range: `J${sheetRow}`,
+              valueInputOption: "RAW",
+              requestBody: { values: [[""]] },
+            });
+
+            console.error(`FAILED: ${participant.email}`, err.message);
+          }
+        })
+      );
     }
   } catch (err) {
     console.error("ERROR in checkNewRegistrations:", err.message);
@@ -215,26 +280,7 @@ async function main() {
 
   if (!(await verifyEmailConfig())) return;
 
-  // await initializeLastProcessedRow();
-
-  setInterval(checkNewRegistrations, 60000);
+  setInterval(checkNewRegistrations, 30000);
 }
 
 main().catch(console.error);
-
-// health check
-const http = require("http");
-
-http
-  .createServer((req, res) => {
-    if (req.url === "/health") {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("OK");
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
-  })
-  .listen(process.env.PORT || 3000, () => {
-    console.log("Health check server running");
-  });

@@ -211,62 +211,52 @@ async function checkNewRegistrations() {
     const rows = res.data.values || [];
     if (!rows.length) return;
 
-    // build tasks for unsent rows
-    const tasks = rows
-      .map((row, i) => ({ row, i }))
-      .filter(({ row }) => row[8] && !row[9]);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
 
-    // tune this number if needed (10–30 is usually fine)
-    const CONCURRENCY = 20;
+      if (!row[8] || row[9]) continue;
 
-    for (let i = 0; i < tasks.length; i += CONCURRENCY) {
-      const chunk = tasks.slice(i, i + CONCURRENCY);
+      const participant = {
+        name: row[1],
+        email: row[8],
+        phone: row[3],
+        emailSent: row[9],
+      };
 
-      await Promise.all(
-        chunk.map(async ({ row, i }) => {
-          const participant = {
-            name: row[1],
-            email: row[8],
-            phone: row[3],
-            emailSent: row[9],
-          };
+      const sheetRow = i + 2;
 
-          const sheetRow = i + 2;
+      try {
+        // lock
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.FORM_SHEET_ID,
+          range: `J${sheetRow}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [["PROCESSING"]] },
+        });
 
-          try {
-            // lock
-            await sheets.spreadsheets.values.update({
-              spreadsheetId: process.env.FORM_SHEET_ID,
-              range: `J${sheetRow}`,
-              valueInputOption: "RAW",
-              requestBody: { values: [["PROCESSING"]] },
-            });
+        await sendPass(participant, i);
+        await addToSecSheet(participant);
 
-            await sendPass(participant, i);
-            await addToSecSheet(participant);
+        // mark sent
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.FORM_SHEET_ID,
+          range: `J${sheetRow}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [[new Date().toISOString()]] },
+        });
 
-            // mark sent
-            await sheets.spreadsheets.values.update({
-              spreadsheetId: process.env.FORM_SHEET_ID,
-              range: `J${sheetRow}`,
-              valueInputOption: "RAW",
-              requestBody: { values: [[new Date().toISOString()]] },
-            });
+        console.log(`SENT: ${participant.email}`);
+      } catch (err) {
+        // unlock on failure
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.FORM_SHEET_ID,
+          range: `J${sheetRow}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [[""]] },
+        });
 
-            console.log(`SENT: ${participant.email}`);
-          } catch (err) {
-            // unlock on failure
-            await sheets.spreadsheets.values.update({
-              spreadsheetId: process.env.FORM_SHEET_ID,
-              range: `J${sheetRow}`,
-              valueInputOption: "RAW",
-              requestBody: { values: [[""]] },
-            });
-
-            console.error(`FAILED: ${participant.email}`, err.message);
-          }
-        })
-      );
+        console.error(`FAILED: ${participant.email}`, err.message);
+      }
     }
   } catch (err) {
     console.error("ERROR in checkNewRegistrations:", err.message);

@@ -187,11 +187,20 @@ async function checkNewRegistrations() {
           requestBody: { values: [["PROCESSING"]] },
         });
 
-        await pool.query("SELECT insert_user_for_elan($1, $2, $3)", [
-          participant.name,
-          participant.email,
-          participant.phone,
-        ]);
+        try {
+          await pool.query("SELECT insert_user_for_elan($1, $2, $3)", [
+            participant.name,
+            participant.email,
+            participant.phone,
+          ]);
+
+          console.log(`DB INSERT OK: ${participant.email}`);
+        } catch (err) {
+          console.error(
+            `DB INSERT FAILED: ${participant.email} | ${err.message}`
+          );
+          throw err; // rethrow so outer logic can rollback / unlock
+        }
 
         await sendPass(participant);
         await addToSecSheet(participant);

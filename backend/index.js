@@ -97,8 +97,14 @@ function saveLastProcessedRow(row) {
 /* ---------------- SECURITY SHEET ---------------- */
 
 function addToBuffer(participant) {
-  securitySheetBuffer.push([participant.name, participant.email, participant.phone]);
-  console.log(`BUFFERED (${securitySheetBuffer.length}/${BUFFER_SIZE}): ${participant.name} | ${participant.email}`);
+  securitySheetBuffer.push([
+    participant.name,
+    participant.email,
+    participant.phone,
+  ]);
+  console.log(
+    `BUFFERED (${securitySheetBuffer.length}/${BUFFER_SIZE}): ${participant.name} | ${participant.email}`
+  );
 }
 
 async function flushSecurityBuffer(sheets) {
@@ -114,7 +120,9 @@ async function flushSecurityBuffer(sheets) {
       },
     });
 
-    console.log(`✓ FLUSHED ${securitySheetBuffer.length} rows to security sheet`);
+    console.log(
+      `✓ FLUSHED ${securitySheetBuffer.length} rows to security sheet`
+    );
     securitySheetBuffer = [];
   } catch (err) {
     console.error("ERROR flushing to security sheet:", err.message);
@@ -232,7 +240,7 @@ async function checkNewRegistrations() {
         });
 
         await sendPass(participant);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         addToBuffer(participant);
 
         // Flush buffer if it reaches the limit
@@ -249,7 +257,6 @@ async function checkNewRegistrations() {
         });
 
         console.log(`SENT: ${participant.email} (Row ${sheetRow})`);
-
       } catch (err) {
         // UNLOCK ON FAILURE (don't update state so we retry this row)
         await sheets.spreadsheets.values.update({

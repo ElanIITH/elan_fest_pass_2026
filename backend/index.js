@@ -232,6 +232,7 @@ async function checkNewRegistrations() {
         });
 
         await sendPass(participant);
+        await new Promise(resolve => setTimeout(resolve, 500));
         addToBuffer(participant);
 
         // Flush buffer if it reaches the limit

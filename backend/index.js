@@ -6,6 +6,13 @@ const handlebars = require("handlebars");
 const bwipjs = require("bwip-js");
 require("dotenv").config();
 
+import pkg from "pg";
+const { Pool } = pkg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
 let isProcessing = false;
 
 /* ---------------- GOOGLE AUTH ---------------- */
@@ -179,6 +186,12 @@ async function checkNewRegistrations() {
           valueInputOption: "RAW",
           requestBody: { values: [["PROCESSING"]] },
         });
+
+        await pool.query("SELECT insert_user_for_elan($1, $2, $3)", [
+          participant.name,
+          participant.email,
+          participant.phone,
+        ]);
 
         await sendPass(participant);
         await addToSecSheet(participant);

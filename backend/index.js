@@ -9,7 +9,9 @@ require("dotenv").config();
 // Change this number (1-4) to switch between email accounts
 const CURRENT_EMAIL_NUM = process.env.CURRENT_EMAIL_NUM || "1";
 const STATE_FILE = path.join(__dirname, ".last_processed_row.txt");
+const BUFFER_SIZE = parseInt(process.env.BUFFER_SIZE || "10", 10);
 let isProcessing = false;
+let securitySheetBuffer = [];
 
 /* ---------------- GOOGLE AUTH ---------------- */
 
@@ -94,24 +96,28 @@ function saveLastProcessedRow(row) {
 
 /* ---------------- SECURITY SHEET ---------------- */
 
-async function addToSecSheet(participant) {
-  try {
-    const sheets = google.sheets({ version: "v4", auth });
+function addToBuffer(participant) {
+  securitySheetBuffer.push([participant.name, participant.email, participant.phone]);
+  console.log(`BUFFERED (${securitySheetBuffer.length}/${BUFFER_SIZE}): ${participant.name} | ${participant.email}`);
+}
 
+async function flushSecurityBuffer(sheets) {
+  if (securitySheetBuffer.length === 0) return;
+
+  try {
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.FORM_SHEET_ID_SEC,
       range: "A2:C",
       valueInputOption: "RAW",
       resource: {
-        values: [[participant.name, participant.email, participant.phone]],
+        values: securitySheetBuffer,
       },
     });
 
-    console.log(
-      `ADDED to security sheet: ${participant.name} | ${participant.email}`
-    );
+    console.log(`✓ FLUSHED ${securitySheetBuffer.length} rows to security sheet`);
+    securitySheetBuffer = [];
   } catch (err) {
-    console.error("ERROR adding to security sheet:", err.message);
+    console.error("ERROR flushing to security sheet:", err.message);
   }
 }
 
@@ -226,7 +232,12 @@ async function checkNewRegistrations() {
         });
 
         await sendPass(participant);
-        await addToSecSheet(participant);
+        addToBuffer(participant);
+
+        // Flush buffer if it reaches the limit
+        if (securitySheetBuffer.length >= BUFFER_SIZE) {
+          await flushSecurityBuffer(sheets);
+        }
 
         // MARK SENT
         await sheets.spreadsheets.values.update({
@@ -238,11 +249,6 @@ async function checkNewRegistrations() {
 
         console.log(`SENT: ${participant.email} (Row ${sheetRow})`);
 
-        // Update state after successful processing
-        saveLastProcessedRow(sheetRow);
-
-        // Process only one email per iteration
-        break;
       } catch (err) {
         // UNLOCK ON FAILURE (don't update state so we retry this row)
         await sheets.spreadsheets.values.update({
@@ -256,10 +262,12 @@ async function checkNewRegistrations() {
           `FAILED: ${participant.email} (Row ${sheetRow})`,
           err.message
         );
-        // Don't update state on failure - retry this row next time
-        break;
       }
+      saveLastProcessedRow(sheetRow);
     }
+
+    // Flush any remaining buffered rows
+    await flushSecurityBuffer(sheets);
   } catch (err) {
     console.error("ERROR in checkNewRegistrations:", err.message);
   } finally {
@@ -272,6 +280,7 @@ async function checkNewRegistrations() {
 async function main() {
   console.log("Starting ELAN Pass Automation...");
   console.log(`Last processed row: ${getLastProcessedRow()}`);
+  console.log(`Security sheet buffer size: ${BUFFER_SIZE}`);
 
   if (!(await verifyEmailConfig())) return;
 

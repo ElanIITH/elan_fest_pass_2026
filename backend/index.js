@@ -6,12 +6,7 @@ const handlebars = require("handlebars");
 const bwipjs = require("bwip-js");
 require("dotenv").config();
 
-const { Pool } = require("pg");
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
+const STATE_FILE = path.join(__dirname, ".last_processed_row.txt");
 let isProcessing = false;
 
 /* ---------------- GOOGLE AUTH ---------------- */
@@ -70,6 +65,29 @@ async function generateBarcode(email) {
       (err, png) => (err ? reject(err) : resolve(png))
     );
   });
+}
+
+/* ---------------- STATE PERSISTENCE ---------------- */
+
+function getLastProcessedRow() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const content = fs.readFileSync(STATE_FILE, "utf8").trim();
+      const row = parseInt(content, 10);
+      return isNaN(row) ? 1 : row;
+    }
+  } catch (err) {
+    console.error("ERROR reading state file:", err.message);
+  }
+  return 1; // Start from row 2 (first data row)
+}
+
+function saveLastProcessedRow(row) {
+  try {
+    fs.writeFileSync(STATE_FILE, row.toString(), "utf8");
+  } catch (err) {
+    console.error("ERROR writing state file:", err.message);
+  }
 }
 
 /* ---------------- SECURITY SHEET ---------------- */
@@ -156,26 +174,45 @@ async function checkNewRegistrations() {
   const sheets = google.sheets({ version: "v4", auth });
 
   try {
+    const lastProcessedRow = getLastProcessedRow();
+    const startRow = lastProcessedRow + 1;
+
+    // Fetch only rows after the last processed row
+    // Using a reasonable batch size (e.g., 100 rows at a time)
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.FORM_SHEET_ID,
-      range: "A2:J",
+      range: `A${startRow}:J${startRow + 99}`,
     });
 
     const rows = res.data.values || [];
-    if (!rows.length) return;
+    if (!rows.length) {
+      isProcessing = false;
+      return;
+    }
 
+    // Process only the first unprocessed row with a valid email
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      const sheetRow = startRow + i;
 
-      if (!row[8] || row[9]) continue; // no email OR already sent
+      // Skip if no email present
+      if (!row[8]) {
+        // Move cursor forward even for empty rows to avoid getting stuck
+        saveLastProcessedRow(sheetRow);
+        continue;
+      }
+
+      // Skip if already sent (column J has a value)
+      if (row[9]) {
+        saveLastProcessedRow(sheetRow);
+        continue;
+      }
 
       const participant = {
         name: row[1],
         email: row[8],
         phone: row[3],
       };
-
-      const sheetRow = i + 2;
 
       try {
         // LOCK
@@ -189,20 +226,6 @@ async function checkNewRegistrations() {
         await sendPass(participant);
         await addToSecSheet(participant);
 
-        // try {
-        //   await pool.query("SELECT insert_user_for_elan($1, $2, $3)", [
-        //     participant.name,
-        //     participant.email,
-        //     participant.phone,
-        //   ]);
-
-        //   console.log(`DB INSERT OK: ${participant.email}`);
-        // } catch (err) {
-        //   console.error(
-        //     `DB INSERT FAILED: ${participant.email} | ${err.message}`
-        //   );
-        // }
-
         // MARK SENT
         await sheets.spreadsheets.values.update({
           spreadsheetId: process.env.FORM_SHEET_ID,
@@ -211,9 +234,15 @@ async function checkNewRegistrations() {
           requestBody: { values: [[new Date().toISOString()]] },
         });
 
-        console.log(`SENT: ${participant.email}`);
+        console.log(`SENT: ${participant.email} (Row ${sheetRow})`);
+
+        // Update state after successful processing
+        saveLastProcessedRow(sheetRow);
+
+        // Process only one email per iteration
+        break;
       } catch (err) {
-        // UNLOCK ON FAILURE
+        // UNLOCK ON FAILURE (don't update state so we retry this row)
         await sheets.spreadsheets.values.update({
           spreadsheetId: process.env.FORM_SHEET_ID,
           range: `J${sheetRow}`,
@@ -221,7 +250,12 @@ async function checkNewRegistrations() {
           requestBody: { values: [[""]] },
         });
 
-        console.error(`FAILED: ${participant.email}`, err.message);
+        console.error(
+          `FAILED: ${participant.email} (Row ${sheetRow})`,
+          err.message
+        );
+        // Don't update state on failure - retry this row next time
+        break;
       }
     }
   } catch (err) {
@@ -235,10 +269,11 @@ async function checkNewRegistrations() {
 
 async function main() {
   console.log("Starting ELAN Pass Automation...");
+  console.log(`Last processed row: ${getLastProcessedRow()}`);
 
   if (!(await verifyEmailConfig())) return;
 
-  setInterval(checkNewRegistrations, 15000);
+  setInterval(checkNewRegistrations, 30000);
 }
 
 main().catch(console.error);

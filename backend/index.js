@@ -238,7 +238,7 @@ async function main() {
 
   if (!(await verifyEmailConfig())) return;
 
-  setInterval(checkNewRegistrations, 30000);
+  setInterval(checkNewRegistrations, 15000);
 }
 
 main().catch(console.error);

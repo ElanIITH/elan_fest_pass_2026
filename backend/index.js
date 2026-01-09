@@ -6,6 +6,8 @@ const handlebars = require("handlebars");
 const bwipjs = require("bwip-js");
 require("dotenv").config();
 
+// Change this number (1-4) to switch between email accounts
+const CURRENT_EMAIL_NUM = process.env.CURRENT_EMAIL_NUM || "1";
 const STATE_FILE = path.join(__dirname, ".last_processed_row.txt");
 let isProcessing = false;
 
@@ -23,8 +25,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
+    user: process.env[`EMAIL_${CURRENT_EMAIL_NUM}`],
+    pass: process.env[`EMAIL_${CURRENT_EMAIL_NUM}_PWD`],
   },
   pool: true,
   maxConnections: 1,
@@ -157,7 +159,7 @@ async function sendPass(participant) {
   }
 
   await transporter.sendMail({
-    from: process.env.EMAIL_2,
+    from: process.env[`EMAIL_${CURRENT_EMAIL_NUM}`],
     to: participant.email,
     subject: `${formattedName}, your Elan & nVision 2026 Pass is ready!`,
     html: htmlContent,

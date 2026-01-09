@@ -39,3 +39,6 @@ build/
 # Temporary files
 tmp/
 temp/
+
+
+.last_processed_row.txt

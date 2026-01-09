@@ -188,11 +188,10 @@ async function checkNewRegistrations() {
         });
 
         try {
-          await pool.query("SELECT insert_user_for_elan($1, $2, $3)", [
-            participant.name,
-            participant.email,
-            participant.phone,
-          ]);
+          await pool.query(
+            "INSERT INTO insert_user_for_elan (name, email, phone) VALUES ($1, $2, $3)",
+            [participant.name, participant.email, participant.phone]
+          );
 
           console.log(`DB INSERT OK: ${participant.email}`);
         } catch (err) {

@@ -9,6 +9,7 @@ require("dotenv").config();
 // Change this number (1-4) to switch between email accounts
 const CURRENT_EMAIL_NUM = process.env.CURRENT_EMAIL_NUM || "1";
 const STATE_FILE = path.join(__dirname, ".last_processed_row.txt");
+const BOT_ENABLED_FILE = path.join(__dirname, ".bot_enabled");
 const BUFFER_SIZE = parseInt(process.env.BUFFER_SIZE || "10", 10);
 let isProcessing = false;
 let securitySheetBuffer = [];
@@ -91,6 +92,30 @@ function saveLastProcessedRow(row) {
     fs.writeFileSync(STATE_FILE, row.toString(), "utf8");
   } catch (err) {
     console.error("ERROR writing state file:", err.message);
+  }
+}
+
+function isBotEnabled() {
+  return fs.existsSync(BOT_ENABLED_FILE);
+}
+
+function enableBot() {
+  try {
+    fs.writeFileSync(BOT_ENABLED_FILE, "enabled", "utf8");
+    console.log("✓ BOT ENABLED");
+  } catch (err) {
+    console.error("ERROR enabling bot:", err.message);
+  }
+}
+
+function disableBot() {
+  try {
+    if (fs.existsSync(BOT_ENABLED_FILE)) {
+      fs.unlinkSync(BOT_ENABLED_FILE);
+    }
+    console.log("✗ BOT DISABLED");
+  } catch (err) {
+    console.error("ERROR disabling bot:", err.message);
   }
 }
 
@@ -184,6 +209,11 @@ async function sendPass(participant) {
 /* ---------------- MAIN LOGIC ---------------- */
 
 async function checkNewRegistrations() {
+  if (!isBotEnabled()) {
+    console.log("Bot is disabled. Skipping email processing.");
+    return;
+  }
+
   if (isProcessing) return;
   isProcessing = true;
 
@@ -286,7 +316,27 @@ async function checkNewRegistrations() {
 /* ---------------- BOOTSTRAP ---------------- */
 
 async function main() {
+  // Handle CLI commands
+  const args = process.argv.slice(2);
+
+  if (args.includes("on") || args.includes("enable")) {
+    enableBot();
+    return;
+  }
+
+  if (args.includes("off") || args.includes("disable")) {
+    disableBot();
+    return;
+  }
+
+  if (args.includes("status")) {
+    console.log(`Bot status: ${isBotEnabled() ? "ENABLED ✓" : "DISABLED ✗"}`);
+    console.log(`Last processed row: ${getLastProcessedRow()}`);
+    return;
+  }
+
   console.log("Starting ELAN Pass Automation...");
+  console.log(`Bot status: ${isBotEnabled() ? "ENABLED ✓" : "DISABLED ✗"}`);
   console.log(`Last processed row: ${getLastProcessedRow()}`);
   console.log(`Security sheet buffer size: ${BUFFER_SIZE}`);
 

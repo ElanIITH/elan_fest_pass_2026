@@ -6,8 +6,12 @@ const handlebars = require("handlebars");
 const bwipjs = require("bwip-js");
 require("dotenv").config();
 
-// Change this number (1-4) to switch between email accounts
-const CURRENT_EMAIL_NUM = process.env.CURRENT_EMAIL_NUM || "1";
+// Email account management
+const ACCOUNT_STATE_FILE = path.join(__dirname, ".current_email_account.txt");
+const MAX_ACCOUNTS = 4;
+let currentEmailNum = null;
+let activeTransporter = null;
+
 const STATE_FILE = path.join(__dirname, ".last_processed_row.txt");
 const BOT_ENABLED_FILE = path.join(__dirname, ".bot_enabled");
 const BUFFER_SIZE = parseInt(process.env.BUFFER_SIZE || "10", 10);
@@ -23,23 +27,137 @@ const auth = new google.auth.GoogleAuth({
 
 /* ---------------- SMTP ---------------- */
 
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env[`EMAIL_${CURRENT_EMAIL_NUM}`],
-    pass: process.env[`EMAIL_${CURRENT_EMAIL_NUM}_PWD`],
-  },
-  pool: true,
-  maxConnections: 1,
-  maxMessages: 500,
-});
+function getCurrentEmailAccount() {
+  if (currentEmailNum !== null) return currentEmailNum;
+
+  try {
+    if (fs.existsSync(ACCOUNT_STATE_FILE)) {
+      const content = fs.readFileSync(ACCOUNT_STATE_FILE, "utf8").trim();
+      const num = parseInt(content, 10);
+      if (num >= 1 && num <= MAX_ACCOUNTS) {
+        currentEmailNum = num;
+        return currentEmailNum;
+      }
+    }
+  } catch (err) {
+    console.error("ERROR reading account state:", err.message);
+  }
+
+  // Fallback to env or default
+  currentEmailNum = parseInt(process.env.CURRENT_EMAIL_NUM || "1", 10);
+  saveCurrentEmailAccount(currentEmailNum);
+  return currentEmailNum;
+}
+
+function saveCurrentEmailAccount(accountNum) {
+  try {
+    fs.writeFileSync(ACCOUNT_STATE_FILE, accountNum.toString(), "utf8");
+    currentEmailNum = accountNum;
+  } catch (err) {
+    console.error("ERROR saving account state:", err.message);
+  }
+}
+
+function createTransporter(accountNum) {
+  const user = process.env[`EMAIL_${accountNum}`];
+  const pass = process.env[`EMAIL_${accountNum}_PWD`];
+
+  if (!user || !pass) {
+    throw new Error(`Email credentials not found for account ${accountNum}`);
+  }
+
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    auth: { user, pass },
+    pool: true,
+    maxConnections: 1,
+    maxMessages: 500,
+  });
+}
+
+function getTransporter() {
+  if (!activeTransporter) {
+    const accountNum = getCurrentEmailAccount();
+    activeTransporter = createTransporter(accountNum);
+  }
+  return activeTransporter;
+}
+
+function isQuotaError(err) {
+  if (!err) return false;
+
+  const message = err.message || "";
+  const response = err.response || "";
+  const code = err.code || "";
+  const responseCode = err.responseCode || 0;
+
+  // Gmail quota error signatures
+  const quotaPatterns = [
+    /daily.*sending.*limit.*exceeded/i,
+    /daily user sending limit/i,
+    /user has exceeded the allowed sending limits/i,
+    /sending limits/i,
+    /quota exceeded/i,
+    /too many messages/i,
+    /rate limit/i,
+    /454[.\s-]4\.7\.0/,
+    /550[.\s-]5\.4\.5/,
+    /421[.\s-]4\.7\.0.*try again later/i,
+  ];
+
+  return (
+    quotaPatterns.some(
+      (pattern) => pattern.test(message) || pattern.test(response)
+    ) || [454, 550, 421].includes(responseCode)
+  );
+}
+
+async function switchToNextAccount(triedAccounts = new Set()) {
+  const currentAccount = getCurrentEmailAccount();
+  triedAccounts.add(currentAccount);
+
+  // Try next account in sequence
+  for (let i = 1; i <= MAX_ACCOUNTS; i++) {
+    const nextAccount = (currentAccount % MAX_ACCOUNTS) + i;
+    if (nextAccount > MAX_ACCOUNTS) continue;
+
+    if (triedAccounts.has(nextAccount)) continue;
+
+    // Check if credentials exist
+    if (
+      !process.env[`EMAIL_${nextAccount}`] ||
+      !process.env[`EMAIL_${nextAccount}_PWD`]
+    ) {
+      triedAccounts.add(nextAccount);
+      continue;
+    }
+
+    try {
+      const testTransporter = createTransporter(nextAccount);
+      await testTransporter.verify();
+
+      // Success - switch to this account
+      saveCurrentEmailAccount(nextAccount);
+      activeTransporter = testTransporter;
+      console.log(`✓ SWITCHED to EMAIL_${nextAccount}`);
+      return true;
+    } catch (err) {
+      console.log(`✗ EMAIL_${nextAccount} verification failed:`, err.message);
+      triedAccounts.add(nextAccount);
+    }
+  }
+
+  return false; // All accounts exhausted
+}
 
 async function verifyEmailConfig() {
   try {
+    const transporter = getTransporter();
     await transporter.verify();
-    console.log("SMTP Verified Successfully");
+    const accountNum = getCurrentEmailAccount();
+    console.log(`SMTP Verified Successfully (EMAIL_${accountNum})`);
     return true;
   } catch (err) {
     console.error("SMTP Verification Failed:", err.message);
@@ -156,7 +274,7 @@ async function flushSecurityBuffer(sheets) {
 
 /* ---------------- EMAIL SEND ---------------- */
 
-async function sendPass(participant) {
+async function sendPass(participant, triedAccounts = new Set()) {
   const barcodeBuffer = await generateBarcode(participant.email);
 
   const formattedName =
@@ -197,13 +315,43 @@ async function sendPass(participant) {
     });
   }
 
-  await transporter.sendMail({
-    from: process.env[`EMAIL_${CURRENT_EMAIL_NUM}`],
+  const currentAccount = getCurrentEmailAccount();
+  const mailOptions = {
+    from: process.env[`EMAIL_${currentAccount}`],
     to: participant.email,
     subject: `${formattedName}, your Elan & nVision 2026 Pass is ready!`,
     html: htmlContent,
     attachments,
-  });
+  };
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail(mailOptions);
+  } catch (err) {
+    // Check if quota error
+    if (isQuotaError(err)) {
+      console.log(`⚠️  QUOTA HIT on EMAIL_${currentAccount}`);
+
+      // Try to switch to next account
+      const switched = await switchToNextAccount(triedAccounts);
+
+      if (switched) {
+        // Retry with new account
+        console.log(`🔄 RETRYING send for ${participant.email}`);
+        return await sendPass(participant, triedAccounts);
+      } else {
+        // All accounts exhausted
+        const exhaustedErr = new Error(
+          `ALL_ACCOUNTS_EXHAUSTED: All ${MAX_ACCOUNTS} email accounts have hit quota limits`
+        );
+        exhaustedErr.code = "ALL_ACCOUNTS_EXHAUSTED";
+        throw exhaustedErr;
+      }
+    }
+
+    // Non-quota error, rethrow
+    throw err;
+  }
 }
 
 /* ---------------- MAIN LOGIC ---------------- */
@@ -337,6 +485,7 @@ async function main() {
 
   console.log("Starting ELAN Pass Automation...");
   console.log(`Bot status: ${isBotEnabled() ? "ENABLED ✓" : "DISABLED ✗"}`);
+  console.log(`Active email account: EMAIL_${getCurrentEmailAccount()}`);
   console.log(`Last processed row: ${getLastProcessedRow()}`);
   console.log(`Security sheet buffer size: ${BUFFER_SIZE}`);
 

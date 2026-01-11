@@ -40,5 +40,7 @@ build/
 tmp/
 temp/
 
-
+# state files
 .last_processed_row.txt
+.current_email_account.txt
+.bot_enabled

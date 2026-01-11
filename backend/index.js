@@ -214,7 +214,15 @@ function saveLastProcessedRow(row) {
 }
 
 function isBotEnabled() {
-  return fs.existsSync(BOT_ENABLED_FILE);
+  try {
+    if (fs.existsSync(BOT_ENABLED_FILE)) {
+      const content = fs.readFileSync(BOT_ENABLED_FILE, "utf8").trim();
+      return content === "enabled";
+    }
+  } catch (err) {
+    console.error("ERROR reading bot state:", err.message);
+  }
+  return false;
 }
 
 function enableBot() {
@@ -228,9 +236,7 @@ function enableBot() {
 
 function disableBot() {
   try {
-    if (fs.existsSync(BOT_ENABLED_FILE)) {
-      fs.unlinkSync(BOT_ENABLED_FILE);
-    }
+    fs.writeFileSync(BOT_ENABLED_FILE, "disabled", "utf8");
     console.log("✗ BOT DISABLED");
   } catch (err) {
     console.error("ERROR disabling bot:", err.message);
